@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mis Finanzas</title>
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Finanzas">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="mes">
+      <button id="mes-anterior" aria-label="Mes anterior">‹</button>
+      <h1 id="titulo"></h1>
+      <button id="mes-siguiente" aria-label="Mes siguiente">›</button>
+    </div>
+    <p id="modo-demo" class="modo-demo" hidden>Modo demo: los datos solo están en este dispositivo</p>
+  </header>
+
+  <main>
+    <section id="vista-resumen" class="vista"></section>
+    <section id="vista-movimientos" class="vista" hidden></section>
+    <section id="vista-ajustes" class="vista" hidden>
+      <h2>Conexión con Google Sheets</h2>
+      <form id="form-conexion" class="tarjeta formulario">
+        <label>URL de la API
+          <input id="cfg-url" class="campo" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off">
+        </label>
+        <label>Clave
+          <input id="cfg-token" class="campo" type="password" autocomplete="off">
+        </label>
+        <p id="estado-conexion" class="ayuda"></p>
+        <button class="primario">Conectar</button>
+      </form>
+
+      <h2>Categorías y presupuestos</h2>
+      <p class="ayuda">Las palabras clave sirven para el apunte rápido y el atajo: “12 mercadona” va a Supermercado. Si cambias el nombre de una categoría, los movimientos antiguos se quedan con el nombre anterior.</p>
+      <div id="editor-cats"></div>
+      <div class="botonera">
+        <button id="anadir-cat" class="secundario">Añadir categoría</button>
+        <button id="guardar-cats" class="primario">Guardar</button>
+      </div>
+
+      <h2>Métodos de pago</h2>
+      <p class="ayuda">El primero de la lista es el que se usa si no dices ninguno. Las palabras clave sirven para frases como “20 gasolina en efectivo”.</p>
+      <div id="editor-metodos"></div>
+      <div class="botonera">
+        <button id="anadir-metodo" class="secundario">Añadir método</button>
+        <button id="guardar-metodos" class="primario">Guardar</button>
+      </div>
+    </section>
+  </main>
+
+  <button id="fab" class="fab" aria-label="Apuntar movimiento">+</button>
+
+  <nav class="tabs">
+    <button data-vista="resumen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z" fill="currentColor" opacity=".35"/><path d="M14 2.2V10h7.8A8 8 0 0 0 14 2.2z" fill="currentColor"/></svg>
+      Resumen
+    </button>
+    <button data-vista="movimientos">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+      Movimientos
+    </button>
+    <button data-vista="ajustes">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Ajustes
+    </button>
+  </nav>
+
+  <div id="hoja-nuevo" class="hoja" hidden>
+    <form id="form-nuevo" class="hoja-panel">
+      <div class="tirador"></div>
+      <input id="rapido" class="campo" placeholder="Escribe o dicta: 12,50 súper" autocomplete="off" enterkeyhint="done">
+      <p id="rapido-preview" class="preview"></p>
+      <p class="separador">o rellénalo a mano</p>
+      <div id="segmento" class="segmento">
+        <button type="button" data-tipo="gasto">Gasto</button>
+        <button type="button" data-tipo="ingreso">Ingreso</button>
+      </div>
+      <input id="importe" class="importe" inputmode="decimal" placeholder="0,00 €" autocomplete="off">
+      <div id="chips" class="chips"></div>
+      <p class="etiqueta-chips">Pagado con</p>
+      <div id="metodos" class="chips"></div>
+      <div class="fila">
+        <input id="fecha" class="campo" type="date">
+        <input id="nota" class="campo" placeholder="Nota (opcional)">
+      </div>
+      <button class="primario">Guardar</button>
+    </form>
+  </div>
+
+  <div id="aviso" class="aviso" role="status" hidden></div>
+
+  <script src="parser.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
