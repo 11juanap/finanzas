@@ -1,6 +1,6 @@
 // Guarda la app para abrirla sin conexión. Primero intenta la red para recoger
 // cambios nuevos; si no hay, tira de la copia guardada.
-const VERSION = 'finanzas-v2';
+const VERSION = 'finanzas-v3';
 const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'parser.js', 'manifest.webmanifest', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

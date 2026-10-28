@@ -133,9 +133,10 @@ function render() {
   $('#titulo').textContent = enAjustes ? 'Ajustes' : nombreMes(estado.mes);
   $('#mes-anterior').style.visibility = $('#mes-siguiente').style.visibility = enAjustes ? 'hidden' : '';
   $('#modo-demo').hidden = !!estado.config.url;
-  $('#fab').hidden = enAjustes;
+  $('#fab').hidden = enAjustes || estado.vista === 'evolucion';
   if (estado.vista === 'resumen') renderResumen();
   if (estado.vista === 'movimientos') renderMovimientos();
+  if (estado.vista === 'evolucion') renderEvolucion();
 }
 
 function nivel(restante) {
@@ -193,8 +194,25 @@ function renderResumen() {
     .sort((a, b) => b.gastado - a.gastado);
 
   // El anillo solo mira las categorías con presupuesto: el alquiler sin límite no se lo come.
-  const gastadoConPresupuesto = filas.filter(c => Number(c.presupuesto) > 0).reduce((t, c) => t + c.gastado, 0);
+  const conPresupuesto = new Set(catsGasto.filter(c => Number(c.presupuesto) > 0).map(c => c.nombre));
+  const gastadoConPresupuesto = filas.filter(c => conPresupuesto.has(c.nombre)).reduce((t, c) => t + c.gastado, 0);
   const restante = presupuesto ? 1 - gastadoConPresupuesto / presupuesto : null;
+
+  // Días que cuentan para la media y el ritmo: hasta hoy en el mes actual, el mes entero en los pasados.
+  const mesHoy = fechaISO(new Date()).slice(0, 7);
+  const dias = diasDelMes(estado.mes);
+  const transcurridos = estado.mes === mesHoy ? new Date().getDate() : estado.mes < mesHoy ? dias : 0;
+  const anterior = mesAnterior(estado.mes);
+  // Se compara con el mes anterior hasta el mismo día, para no medir medio mes contra uno entero.
+  const gastoAnterior = suma(movsDe(anterior).filter(m => m.tipo === 'gasto' && Number(m.fecha.slice(8, 10)) <= (transcurridos || 31)));
+  const cambio = gastoAnterior ? (gastado - gastoAnterior) / gastoAnterior : null;
+  const mayor = filas[0] && filas[0].gastado > 0 ? filas[0] : null;
+
+  const porDia = Array(dias).fill(0);
+  gastos.filter(m => !presupuesto || conPresupuesto.has(m.categoria))
+    .forEach(m => { porDia[Number(m.fecha.slice(8, 10)) - 1] += Number(m.importe); });
+  let acumulado = 0;
+  const ritmo = porDia.map((v, i) => (i < transcurridos ? (acumulado += v) : null));
   $('#vista-resumen').innerHTML = `
     <section class="tarjeta hero">
       ${anillo(restante)}
@@ -209,10 +227,252 @@ function renderResumen() {
       <div class="tarjeta"><p class="etiqueta">Gastos</p><p>${formatearEuros(gastado)}</p></div>
       <div class="tarjeta"><p class="etiqueta">Balance</p><p class="${ingresado >= gastado ? 'positivo' : 'negativo'}">${formatearEuros(ingresado - gastado)}</p></div>
     </section>
+    ${transcurridos && gastado ? `
+    <h2>El mes de un vistazo</h2>
+    <section class="vistazo">
+      <div class="tarjeta">
+        <p class="etiqueta">vs. ${MESES[Number(anterior.slice(5, 7)) - 1]}</p>
+        ${cambio === null ? '<p class="valor">–</p><p class="mini">sin datos</p>'
+          : `<p class="valor ${cambio <= 0 ? 'positivo' : 'negativo'}">${cambio <= 0 ? '▼' : '▲'} ${Math.abs(Math.round(cambio * 100))}%</p>
+             <p class="mini">${cambio <= 0 ? 'menos' : 'más'} gasto${estado.mes === mesHoy ? ' a estas alturas' : ''}</p>`}
+      </div>
+      <div class="tarjeta">
+        <p class="etiqueta">Media diaria</p>
+        <p class="valor">${formatearEuros(gastado / transcurridos)}</p>
+        <p class="mini">en ${transcurridos} día${transcurridos === 1 ? '' : 's'}</p>
+      </div>
+      <div class="tarjeta">
+        <p class="etiqueta">Donde más</p>
+        <p class="valor">${mayor ? esc(mayor.emoji) + ' ' + esc(mayor.nombre) : '–'}</p>
+        <p class="mini">${mayor ? formatearEuros(mayor.gastado) : ''}</p>
+      </div>
+    </section>
+    <section class="tarjeta">
+      <p class="titulo-grafico">Ritmo de gasto</p>
+      <p class="sub">${presupuesto ? 'Acumulado en categorías con presupuesto, frente al ritmo que te permite el presupuesto' : 'Gasto acumulado día a día'}</p>
+      <div id="g-ritmo" class="grafico"></div>
+    </section>` : ''}
     <h2>Por categoría</h2>
     <section class="tarjeta lista-cats">
       ${filas.length ? filas.map(filaCategoria).join('') : '<p class="vacio">Aún no hay gastos este mes. Pulsa + para apuntar el primero.</p>'}
     </section>`;
+  if (transcurridos && gastado) pintarRitmo($('#g-ritmo'), { ritmo, dias, presupuesto });
+}
+
+function renderEvolucion() {
+  const meses = ultimosMeses(6);
+  const datos = meses.map(mes => {
+    const movs = movsDe(mes);
+    return { mes, gastos: suma(movs.filter(m => m.tipo === 'gasto')), ingresos: suma(movs.filter(m => m.tipo === 'ingreso')) };
+  });
+  if (!datos.some(d => d.gastos || d.ingresos)) {
+    $('#vista-evolucion').innerHTML = '<p class="vacio">Aún no hay movimientos en los últimos 6 meses.</p>';
+    return;
+  }
+
+  const catsGasto = estado.categorias.filter(c => c.tipo === 'gasto');
+  const gastoDe = nombre => meses.map(mes => suma(movsDe(mes).filter(m => m.tipo === 'gasto' && m.categoria === nombre)));
+  if (!catsGasto.some(c => c.nombre === estado.catEvolucion)) {
+    // Por defecto, la categoría en la que más se ha gastado en el periodo.
+    estado.catEvolucion = (catsGasto
+      .map(c => ({ nombre: c.nombre, total: gastoDe(c.nombre).reduce((a, b) => a + b, 0) }))
+      .sort((a, b) => b.total - a.total)[0] || {}).nombre;
+  }
+  const cat = catsGasto.find(c => c.nombre === estado.catEvolucion);
+  const valoresCat = cat ? gastoDe(cat.nombre) : [];
+  const conDatos = valoresCat.filter(v => v > 0);
+  const mediaCat = conDatos.length ? conDatos.reduce((a, b) => a + b, 0) / conDatos.length : 0;
+  const redondo = n => formatearEuros(Math.round(n)).replace(',00', '');
+
+  $('#vista-evolucion').innerHTML = `
+    <h2>Gastos e ingresos · últimos 6 meses</h2>
+    <section class="tarjeta">
+      <div class="leyenda"><span><i class="serie-1"></i>Ingresos</span><span><i class="serie-2"></i>Gastos</span></div>
+      <div id="g-meses" class="grafico"></div>
+    </section>
+    <section class="tarjeta tabla-meses">
+      <table class="tabla">
+        <thead><tr><th>Mes</th><th>Ingresos</th><th>Gastos</th><th>Balance</th></tr></thead>
+        <tbody>${datos.slice().reverse().map(d => `
+          <tr data-mes="${d.mes}">
+            <td>${capitalizar(mesCorto(d.mes))}</td>
+            <td>${redondo(d.ingresos)}</td>
+            <td>${redondo(d.gastos)}</td>
+            <td class="${d.ingresos >= d.gastos ? 'positivo' : 'negativo'}">${d.ingresos >= d.gastos ? '+' : '−'}${redondo(Math.abs(d.ingresos - d.gastos))}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="ayuda">Toca un mes para ver su resumen.</p>
+    </section>
+    ${cat ? `
+    <h2>Por categoría</h2>
+    <div id="chips-evolucion" class="chips">${catsGasto.map(c => `<button type="button" class="chip ${c.nombre === cat.nombre ? 'activa' : ''}" data-nombre="${esc(c.nombre)}">${esc(c.emoji)} ${esc(c.nombre)}</button>`).join('')}</div>
+    <section class="tarjeta">
+      <p class="titulo-grafico">${esc(cat.emoji)} ${esc(cat.nombre)}</p>
+      <p class="sub">${mediaCat ? `Media de ${formatearEuros(mediaCat)} en los meses con gasto` : 'Sin gastos en estos meses'}${Number(cat.presupuesto) ? ` · presupuesto ${formatearEuros(Number(cat.presupuesto))}` : ''}</p>
+      <div id="g-categoria" class="grafico"></div>
+    </section>` : ''}`;
+
+  const etiquetas = meses.map(mesCorto);
+  pintarColumnas($('#g-meses'), {
+    etiquetas,
+    series: [{ clase: 'serie-1', valores: datos.map(d => d.ingresos) }, { clase: 'serie-2', valores: datos.map(d => d.gastos) }],
+    tooltip: i => `<strong>${nombreMes(meses[i])}</strong><br>Ingresos: ${formatearEuros(datos[i].ingresos)}<br>Gastos: ${formatearEuros(datos[i].gastos)}<br>Balance: ${formatearEuros(datos[i].ingresos - datos[i].gastos)}`
+  });
+  if (cat) {
+    pintarColumnas($('#g-categoria'), {
+      etiquetas,
+      series: [{ clase: 'serie-1', valores: valoresCat }],
+      referencia: Number(cat.presupuesto) || 0,
+      tooltip: i => `<strong>${nombreMes(meses[i])}</strong><br>${esc(cat.nombre)}: ${formatearEuros(valoresCat[i])}`
+    });
+  }
+}
+
+// --- Gráficos (SVG a mano, sin librerías, para que funcione sin conexión) ---
+
+function mesAnterior(mes, n = 1) {
+  const [a, m] = mes.split('-').map(Number);
+  return fechaISO(new Date(a, m - 1 - n, 1)).slice(0, 7);
+}
+
+function ultimosMeses(n) {
+  return Array.from({ length: n }, (_, i) => mesAnterior(estado.mes, n - 1 - i));
+}
+
+function movsDe(mes) {
+  return estado.movimientos.filter(m => String(m.fecha).startsWith(mes));
+}
+
+function mesCorto(mes) {
+  return MESES[Number(mes.slice(5, 7)) - 1].slice(0, 3);
+}
+
+function diasDelMes(mes) {
+  const [a, m] = mes.split('-').map(Number);
+  return new Date(a, m, 0).getDate();
+}
+
+function eurosEje(n) {
+  return n >= 1000 ? (n / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + 'k €' : Math.round(n) + ' €';
+}
+
+// Pasos redondos (1, 2 o 5 × 10ⁿ) para unas cuatro líneas de rejilla.
+function escala(max) {
+  const bruto = Math.max(max, 1) / 4;
+  const potencia = Math.pow(10, Math.floor(Math.log10(bruto)));
+  const paso = [1, 2, 5, 10].map(f => f * potencia).find(p => p >= bruto);
+  return { paso, tope: Math.ceil(Math.max(max, 1) / paso) * paso };
+}
+
+// Columna con el extremo de datos redondeado (4px) y la base recta.
+function columna(x, y, w, h) {
+  const r = Math.min(4, h, w / 2);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+function rejillaY(m, ancho, y, tope, paso) {
+  let svg = '';
+  for (let v = 0; v <= tope + 1e-9; v += paso) {
+    svg += `<line class="${v === 0 ? 'eje' : 'rejilla'}" x1="${m.l}" x2="${ancho - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
+    svg += `<text class="tick" x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${eurosEje(v)}</text>`;
+  }
+  return svg;
+}
+
+function mostrarTip(el, x, html) {
+  const tip = el.querySelector('.tip');
+  tip.innerHTML = html;
+  tip.hidden = false;
+  tip.style.left = Math.min(Math.max(0, x - tip.offsetWidth / 2), el.clientWidth - tip.offsetWidth) + 'px';
+}
+
+function ocultarTip(el) {
+  el.querySelector('.tip').hidden = true;
+  el.querySelectorAll('.activa').forEach(z => z.classList.remove('activa'));
+}
+
+function pintarColumnas(el, { etiquetas, series, referencia, tooltip }) {
+  const ancho = Math.max(260, el.clientWidth), alto = 190;
+  const m = { t: 16, r: 8, b: 26, l: 46 };
+  const iw = ancho - m.l - m.r, ih = alto - m.t - m.b;
+  const { paso, tope } = escala(Math.max(referencia || 0, ...series.flatMap(s => s.valores)));
+  const y = v => m.t + ih - (v / tope) * ih;
+  const banda = iw / etiquetas.length;
+  const grosor = Math.min(24, (banda * 0.6 - (series.length - 1) * 2) / series.length);
+
+  let svg = rejillaY(m, ancho, y, tope, paso);
+  etiquetas.forEach((et, i) => {
+    const x0 = m.l + banda * i + (banda - (series.length * grosor + (series.length - 1) * 2)) / 2;
+    svg += `<rect class="zona" data-i="${i}" x="${m.l + banda * i}" y="${m.t}" width="${banda}" height="${ih}"/>`;
+    series.forEach((s, j) => {
+      const h = (s.valores[i] / tope) * ih;
+      if (h > 0) svg += `<path class="${s.clase}" d="${columna(x0 + j * (grosor + 2), y(0) - Math.max(h, 1), grosor, Math.max(h, 1))}"/>`;
+    });
+    svg += `<text class="tick${i === etiquetas.length - 1 ? ' actual' : ''}" x="${m.l + banda * (i + 0.5)}" y="${alto - 8}" text-anchor="middle">${et}</text>`;
+  });
+  if (referencia) {
+    // La línea va encima de las columnas y la etiqueta lleva halo para leerse sobre ellas.
+    svg += `<line class="referencia" x1="${m.l}" x2="${ancho - m.r}" y1="${y(referencia)}" y2="${y(referencia)}"/>`;
+    svg += `<text class="tick halo" x="${ancho - m.r}" y="${y(referencia) - 5}" text-anchor="end">Presupuesto</text>`;
+  }
+  el.innerHTML = `<svg width="${ancho}" height="${alto}" viewBox="0 0 ${ancho} ${alto}" aria-hidden="true">${svg}</svg><div class="tip" hidden></div>`;
+
+  const elegir = e => {
+    const z = e.target.closest('.zona');
+    if (!z) return;
+    const i = Number(z.dataset.i);
+    el.querySelectorAll('.zona').forEach(o => o.classList.toggle('activa', o === z));
+    mostrarTip(el, m.l + banda * (i + 0.5), tooltip(i));
+  };
+  el.addEventListener('pointermove', elegir);
+  el.addEventListener('pointerdown', elegir);
+  el.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') ocultarTip(el); });
+}
+
+function pintarRitmo(el, { ritmo, dias, presupuesto }) {
+  const ancho = Math.max(260, el.clientWidth), alto = 170;
+  const m = { t: 16, r: 12, b: 24, l: 46 };
+  const iw = ancho - m.l - m.r, ih = alto - m.t - m.b;
+  const hechos = ritmo.filter(v => v !== null);
+  const { paso, tope } = escala(Math.max(presupuesto, ...hechos));
+  const x = d => m.l + ((d - 1) / (dias - 1)) * iw;
+  const y = v => m.t + ih - (v / tope) * ih;
+
+  let svg = rejillaY(m, ancho, y, tope, paso);
+  [1, 8, 15, 22, dias].forEach(d => {
+    svg += `<text class="tick" x="${x(d)}" y="${alto - 6}" text-anchor="middle">${d}</text>`;
+  });
+  if (presupuesto) {
+    svg += `<line class="referencia" x1="${x(1)}" y1="${y(presupuesto / dias)}" x2="${x(dias)}" y2="${y(presupuesto)}"/>`;
+    svg += `<text class="tick halo" x="${x(dias)}" y="${y(presupuesto) - 6}" text-anchor="end">Presupuesto</text>`;
+  }
+  const puntos = hechos.map((v, i) => `${x(i + 1)},${y(v)}`);
+  svg += `<path class="area" d="M${x(1)},${y(0)}L${puntos.join('L')}L${x(hechos.length)},${y(0)}Z"/>`;
+  svg += `<polyline class="linea" points="${puntos.join(' ')}"/>`;
+  svg += `<circle class="punto" cx="${x(hechos.length)}" cy="${y(hechos[hechos.length - 1])}" r="4"/>`;
+  svg += `<line class="cruz" y1="${m.t}" y2="${m.t + ih}" visibility="hidden"/>`;
+  svg += `<circle class="punto foco" r="4" visibility="hidden"/>`;
+  svg += `<rect class="zona-linea" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}"/>`;
+  el.innerHTML = `<svg width="${ancho}" height="${alto}" viewBox="0 0 ${ancho} ${alto}" aria-hidden="true">${svg}</svg><div class="tip" hidden></div>`;
+
+  const cruz = el.querySelector('.cruz'), foco = el.querySelector('.foco');
+  const elegir = e => {
+    const caja = el.querySelector('svg').getBoundingClientRect();
+    const d = Math.min(hechos.length, Math.max(1, Math.round(((e.clientX - caja.left - m.l) / iw) * (dias - 1)) + 1));
+    cruz.setAttribute('x1', x(d)); cruz.setAttribute('x2', x(d)); cruz.setAttribute('visibility', 'visible');
+    foco.setAttribute('cx', x(d)); foco.setAttribute('cy', y(hechos[d - 1])); foco.setAttribute('visibility', 'visible');
+    mostrarTip(el, x(d), `<strong>Día ${d}</strong><br>Llevas ${formatearEuros(hechos[d - 1])}`
+      + (presupuesto ? `<br>Ritmo previsto: ${formatearEuros((presupuesto * d) / dias)}` : ''));
+  };
+  el.addEventListener('pointermove', elegir);
+  el.addEventListener('pointerdown', elegir);
+  el.addEventListener('pointerleave', e => {
+    if (e.pointerType !== 'mouse') return;
+    ocultarTip(el);
+    cruz.setAttribute('visibility', 'hidden');
+    foco.setAttribute('visibility', 'hidden');
+  });
 }
 
 function renderMovimientos() {
@@ -496,6 +756,27 @@ $('#form-nuevo').addEventListener('submit', e => { e.preventDefault(); guardarNu
 $('#vista-movimientos').addEventListener('click', e => {
   const b = e.target.closest('.mov');
   if (b) borrarMovimiento(b.dataset.id);
+});
+$('#vista-evolucion').addEventListener('click', e => {
+  const chip = e.target.closest('#chips-evolucion .chip');
+  if (chip) {
+    estado.catEvolucion = chip.dataset.nombre;
+    renderEvolucion();
+    return;
+  }
+  const fila = e.target.closest('tr[data-mes]');
+  if (fila) {
+    estado.mes = fila.dataset.mes;
+    cambiarVista('resumen');
+  }
+});
+// Los gráficos se dibujan al ancho de la pantalla: al girar el móvil se repintan.
+let temporizadorRedibujo;
+window.addEventListener('resize', () => {
+  clearTimeout(temporizadorRedibujo);
+  temporizadorRedibujo = setTimeout(() => {
+    if (estado.vista === 'resumen' || estado.vista === 'evolucion') render();
+  }, 200);
 });
 $('#form-conexion').addEventListener('submit', e => { e.preventDefault(); conectar(); });
 $('#editor-cats').addEventListener('click', e => {

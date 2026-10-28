@@ -10,6 +10,12 @@
   --justo: #d97706;
   --mal: #dc2626;
   --neutro: #8e8e93;
+  /* Gráficos: dos primeros colores de la paleta categórica validada, y tinta de ejes */
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --rejilla: #e1e0d9;
+  --eje: #c3c2b7;
+  --texto-eje: #898781;
   color-scheme: light dark;
 }
 
@@ -25,6 +31,10 @@
     --bien: #22c55e;
     --justo: #f59e0b;
     --mal: #f87171;
+    --serie-1: #3987e5;
+    --serie-2: #d95926;
+    --rejilla: #2c2c2a;
+    --eje: #383835;
   }
 }
 
@@ -108,6 +118,53 @@ h2 {
 .cat.neutro .cat-detalle { color: var(--suave); }
 .vacio { margin: 0; padding: 24px 8px; text-align: center; color: var(--suave); }
 
+/* El mes de un vistazo */
+.vistazo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.vistazo .tarjeta { padding: 10px 12px; min-width: 0; }
+.vistazo .valor {
+  margin: 2px 0 0; font-weight: 600; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mini { margin: 2px 0 0; font-size: 12px; color: var(--suave); }
+.titulo-grafico { margin: 0; font-weight: 600; }
+
+/* Gráficos */
+.grafico { position: relative; margin-top: 10px; }
+.grafico svg { display: block; max-width: 100%; overflow: visible; touch-action: pan-y; }
+.grafico .rejilla { stroke: var(--rejilla); stroke-width: 1; }
+.grafico .eje { stroke: var(--eje); stroke-width: 1; }
+.grafico .referencia { stroke: var(--suave); stroke-width: 1; }
+.grafico .cruz { stroke: var(--eje); stroke-width: 1; }
+.grafico .tick { font-size: 11px; fill: var(--texto-eje); font-variant-numeric: tabular-nums; }
+.grafico .tick.actual { fill: var(--texto); font-weight: 600; }
+.grafico .tick.halo { fill: var(--suave); paint-order: stroke; stroke: var(--tarjeta); stroke-width: 4px; stroke-linejoin: round; }
+.grafico path.serie-1 { fill: var(--serie-1); }
+.grafico path.serie-2 { fill: var(--serie-2); }
+.grafico .linea { fill: none; stroke: var(--serie-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.grafico .area { fill: var(--serie-1); opacity: .1; }
+.grafico .punto { fill: var(--serie-1); stroke: var(--tarjeta); stroke-width: 2; }
+/* Solo las zonas reciben el toque: así tocar encima de una barra o de la línea también abre el detalle */
+.grafico svg * { pointer-events: none; }
+.grafico .zona, .grafico .zona-linea { fill: var(--texto); opacity: 0; pointer-events: all; }
+.grafico .zona.activa { opacity: .05; }
+.tip {
+  position: absolute; top: -6px; z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 6px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4;
+  background: var(--texto); color: var(--fondo); box-shadow: 0 4px 14px rgb(0 0 0 / .2);
+}
+.leyenda { display: flex; gap: 16px; font-size: 13px; color: var(--suave); }
+.leyenda i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
+.leyenda .serie-1 { background: var(--serie-1); }
+.leyenda .serie-2 { background: var(--serie-2); }
+
+.tabla-meses { margin-top: 8px; }
+.tabla { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tabla th { padding: 4px; font-size: 12px; font-weight: 600; color: var(--suave); text-align: right; }
+.tabla td { padding: 10px 4px; border-top: 1px solid var(--linea); text-align: right; white-space: nowrap; }
+.tabla th:first-child, .tabla td:first-child { text-align: left; }
+.tabla tr[data-mes] { cursor: pointer; }
+.tabla-meses .ayuda { margin: 8px 0 0; }
+
 /* Movimientos */
 #vista-movimientos .tarjeta { padding: 0 16px; }
 .mov {
@@ -129,7 +186,7 @@ h2 {
 }
 .tabs {
   position: fixed; z-index: 5; left: 0; right: 0; bottom: 0;
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(4, 1fr);
   background: var(--tarjeta); border-top: 1px solid var(--linea);
   padding-bottom: env(safe-area-inset-bottom);
 }
